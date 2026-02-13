@@ -1,6 +1,9 @@
 from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 app = FastAPI()
 
@@ -34,7 +37,7 @@ def home(request: Request):
         {"posts": posts, "title": "Home"})
 
 @app.get("/posts/{post_id}", include_in_schema=False)
-def get_post(request: Request, post_id: int): # using type hinting helps FastAPI to automatically validate the input
+def post_page(request: Request, post_id: int): # using type hinting helps FastAPI to automatically validate the input
     for post in posts:
         if post.get("id") == post_id:
             title = post['title'][:50] #only returns the first 50 characters of the title; this is to ensure that it truncates the title in case it is very long
@@ -54,3 +57,28 @@ def get_post(post_id: int): # using type hinting helps FastAPI to automatically 
         if post.get("id") == post_id:
             return post
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+@app.exception_handler(StarletteHTTPException)
+def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
+    message = (
+        exception.detail
+        if exception.detail
+        else "An error occurred. Please check your request and try again."
+    )
+
+    if request.url.path.startswith("/api"):
+        return JSONResponse(
+            status_code=exception.status_code,
+            content={"detail": message},
+        )
+    return templates.TemplateResponse(
+        request,
+        "error.html",
+        {
+            "status_code": exception.status_code,
+            "title": exception.status_code,
+            "message": message,
+        },
+        status_code=exception.status_code, # this line makes sure to tell the browser the correct HTTP status response code
+    )
+
