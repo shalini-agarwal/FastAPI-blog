@@ -28,7 +28,21 @@ posts: list[dict] = [
 @app.get("/", include_in_schema=False, name='home')
 @app.get("/posts", include_in_schema=False, name='posts')
 def home(request: Request):
-    return templates.TemplateResponse(request, "home.html", {"posts": posts, "title": "Home"})
+    return templates.TemplateResponse(
+        request, 
+        "home.html", 
+        {"posts": posts, "title": "Home"})
+
+@app.get("/posts/{post_id}", include_in_schema=False)
+def get_post(request: Request, post_id: int): # using type hinting helps FastAPI to automatically validate the input
+    for post in posts:
+        if post.get("id") == post_id:
+            title = post['title'][:50] #only returns the first 50 characters of the title; this is to ensure that it truncates the title in case it is very long
+            return templates.TemplateResponse(
+                request, "post.html", 
+                {"post": post, "title": title})
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 @app.get("/api/posts")
 def get_posts():
