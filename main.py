@@ -49,7 +49,7 @@ def post_page(request: Request, post_id: int, db: Annotated[Session, Depends(get
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
-@app.get("users/{user_id}/posts", include_in_schema=False, name="user_posts")
+@app.get("/users/{user_id}/posts", include_in_schema=False, name="user_posts")
 def user_posts_page(request: Request, user_id: int, db: Annotated[Session, Depends(get_db)]):
     result = db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
