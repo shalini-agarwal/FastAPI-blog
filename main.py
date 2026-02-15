@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from schemas import PostCreate, PostResponse, UserCreate, UserResponse
+from schemas import PostCreate, PostResponse, UserCreate, UserResponse, PostUpdate
 from typing import Annotated
 
 from sqlalchemy import select
@@ -171,6 +171,68 @@ def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]): # using typ
     if post:
         return post
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+# this endpoint is for a PUT request which requires all the information to be provided for an update; Hence, we will be using PostCreate instead of PostUpdate because that already requires all the information.
+@app.put("/api/posts/{post_id}", response_model=PostResponse)
+def update_post_full(post_id: int, post_data: PostCreate, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    # checking whether the new user_id sent by the PUT request exists; we will only do this if the client sent a user_id which is different from what was already present in the original post
+    # we only want to allow users who created a post to update or delete them
+    if post_data.user_id != post.user_id:
+        result = db.execute(select(models.User).where(models.User.id == post_data.user_id))
+        user = result.scalars().first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+    post.title = post_data.title
+    post.content = post_data.content
+    post.user_id = post_data.user_id
+
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+@app.patch("/api/posts/{post_id}", response_model=PostResponse)
+def update_post_partial(post_id: int, post_data: PostUpdate, db: Annotated[Session, Depends(get_db)]):
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    # exclude_unset attribute only sets the values which were sent in the api request; it is essential because otherwise it will set all the values not sent in the request to default values
+    update_data = post_data.model_dump(exclude_unset=True)
+
+    for field, value in update_data.items():
+        setattr(post, field, value) # this sets the attribute 'field' in the post to the provided 'value'
+
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+# For DELETE requests, we usually return a 204 No Content Response which means that the request succeeded but there is no response body. Hence we don't have a response_model here.
+@app.delete("/api/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT )
+def delete_post(post_id: int, db: Annotated[Session, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
+    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+    post = result.scalars().first()
+
+    if not post:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+    db.delete(post)
+    db.commit()
+# Later when we add authentication, we'll add ownership checks so that only the author of the post is allowed to delete it.
 
 @app.exception_handler(StarletteHTTPException)
 def general_http_exception_handler(request: Request, exception: StarletteHTTPException):

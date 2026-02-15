@@ -25,6 +25,13 @@ class PostBase(BaseModel):
 class PostCreate(PostBase): # this defines what we accept when creating a new post
     user_id: int #TEMP because when we add authorization, we are going to get the user_id from the session
 
+'''  Added None because we want to keep it optional as it is for PATCH update.
+    Didn't include user_id here because we typically don't want to allow a change of ownership through a partial endpoint.
+    If we do want to allow change of ownership, we would want to have it either through a PUT request or have a dedicated endpoint for ownership transfer.
+'''
+class PostUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=100) 
+    content: str | None = Field(default=None, min_length=1)
 
 class PostResponse(PostBase): # this defines what we return from our API end point; this includes fields/ attributes which are not provided by our client
     model_config = ConfigDict(from_attributes=True) # this allows Pydantic to read from databases along with dictionaries; basically by default Pydantic can read dictionary key-value pairs but setting from_attribute=True allows it to access values from dot notation as well
