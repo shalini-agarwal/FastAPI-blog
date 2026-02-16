@@ -3,3 +3,4 @@ __pycache__
 .venv-fastapi/
 venv-fastapi/
 blog.db
+/media/profile_pics

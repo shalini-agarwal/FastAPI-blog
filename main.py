@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, status, Depends
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -9,16 +8,32 @@ from schemas import PostCreate, PostResponse, UserCreate, UserResponse, PostUpda
 from typing import Annotated
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 import models
 from database import Base, engine, get_db
 
-Base.metadata.create_all(bind=engine) 
+from contextlib import asynccontextmanager
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+
+# create_all is synchronous. We can't call synchronous methods with async engine. We need to remove this line and instead create our tables in a lifespan function.
+# lifespan is a modern way in FastAPI to handle start-up and shutdown events. It replaces the older deprecated on-startup and on-shutdown decorators.
+# Base.metadata.create_all(bind=engine) 
 
 
+# Asynchronous way of creating the db tables. If they do exist then, because it is idempotent, it can be run multiple times and it won't have any side effects.?
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Startup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    # Shutdown
+    await engine.dispose()
 
-app = FastAPI()
+
+app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -28,8 +43,8 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/", include_in_schema=False, name='home')
 @app.get("/posts", include_in_schema=False, name='posts')
-def home(request: Request, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.Post)) # we are now getting the posts from the db instead of the in-memory list
+async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author))) # we are now getting the posts from the db instead of the in-memory list
     posts = result.scalars().all()
     return templates.TemplateResponse(
         request, 
@@ -37,8 +52,8 @@ def home(request: Request, db: Annotated[Session, Depends(get_db)]):
         {"posts": posts, "title": "Home"})
 
 @app.get("/posts/{post_id}", include_in_schema=False)
-def post_page(request: Request, post_id: int, db: Annotated[Session, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
-    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+async def post_page(request: Request, post_id: int, db: Annotated[AsyncSession, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(models.Post.id == post_id))
     post = result.scalars().first()
     if post:
         title = post.title[:50]
@@ -50,14 +65,14 @@ def post_page(request: Request, post_id: int, db: Annotated[Session, Depends(get
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
 @app.get("/users/{user_id}/posts", include_in_schema=False, name="user_posts")
-def user_posts_page(request: Request, user_id: int, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.User).where(models.User.id == user_id))
+async def user_posts_page(request: Request, user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.User).where(models.User.id == user_id)) # this doesn't need a selectinload eager loading because we are not accessing any relationships when we are checking whether the user exists
     user = result.scalars().first()
 
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     
-    result = db.execute(select(models.Post).where(models.Post.user_id == user_id))
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(models.Post.user_id == user_id))
     posts = result.scalars().all()
 
     return templates.TemplateResponse(
@@ -68,9 +83,9 @@ def user_posts_page(request: Request, user_id: int, db: Annotated[Session, Depen
 
 
 @app.post("/api/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]): # dependency injection
+async def create_user(user: UserCreate, db: Annotated[AsyncSession, Depends(get_db)]): # dependency injection
     
-    result = db.execute(
+    result = await db.execute(
         select(models.User).where(models.User.username == user.username)
         )
     existing_user = result.scalars().first() # gets the first user object or None if there is no match
@@ -82,7 +97,7 @@ def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]): # de
             detail="Username already exists",
         )
     
-    result = db.execute(select(models.User).where(models.User.email == user.email))
+    result = await db.execute(select(models.User).where(models.User.email == user.email))
     existing_email = result.scalars().first() # gets the first user object or None if there is no match
 
     if existing_email:
@@ -96,19 +111,17 @@ def create_user(user: UserCreate, db: Annotated[Session, Depends(get_db)]): # de
         email=user.email
     )
 
-    db.add(new_user) #inserts the data
-    db.commit() # executes and saves to the db
-    db.refresh(new_user) #reloads the object from the db
+    db.add(new_user) #inserts the data # this doesn't gets an await like commit and refersh because add just adds the object to the session's pending list in memory.It doesn't do any I/O. Tha actual db operations happen at commit and refresh.
+    await db.commit() # executes and saves to the db
+    await db.refresh(new_user) #reloads the object from the db
 
     return new_user
 
 
 @app.get("/api/users/{user_id}", response_model=UserResponse)
-def get_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
+async def get_user(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
 
-    result = db.execute(
-        select(models.User).where(models.User.id == user_id)
-        )
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
 
     if user:
@@ -117,11 +130,11 @@ def get_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 @app.get("/api/users/{user_id}/posts", response_model=list[PostResponse])
-def get_user_posts(user_id: int, db: Annotated[Session, Depends(get_db)]):
+async def get_user_posts(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
 
     # checking first whether the user exists because if there is an empty posts list returned then it could have been two reasons - either the user has not posts or the user doesn't exist
     # hence, if there is an empty list, then it means the user exists but they don't have any post
-    result = db.execute(select(models.User).where(models.User.id == user_id))
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
 
     if not user:
@@ -130,19 +143,19 @@ def get_user_posts(user_id: int, db: Annotated[Session, Depends(get_db)]):
             detail="User not found"
         )
     
-    result = db.execute(select(models.Post).where(models.Post.user_id == user_id))
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(models.Post.user_id == user_id))
     posts = result.scalars().all()
     return posts
 
 # In practice, you usually use only PATCH for updating data. PUT is not used often because it is rare that you need to completely update all the associated data with a user or a post.
 # Hence, we only added PATCH for users and not PATCH and PUT both.
 @app.patch("/api/users/{user_id}", response_model=UserResponse)
-def update_user(
+async def update_user(
     user_id: int,
     user_update: UserUpdate,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = db.execute(select(models.User).where(models.User.id == user_id))
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
     if not user:
         raise HTTPException(
@@ -151,7 +164,7 @@ def update_user(
         )
 
     if user_update.username is not None and user_update.username != user.username:
-        result = db.execute(
+        result = await db.execute(
             select(models.User).where(models.User.username == user_update.username),
         )
         existing_user = result.scalars().first()
@@ -162,7 +175,7 @@ def update_user(
             )
 
     if user_update.email is not None and user_update.email != user.email:
-        result = db.execute(
+        result = await db.execute(
             select(models.User).where(models.User.email == user_update.email),
         )
         existing_email = result.scalars().first()
@@ -180,14 +193,14 @@ def update_user(
     if user_update.image_file is not None:
         user.image_file = user_update.image_file
 
-    db.commit()
-    db.refresh(user)
+    await db.commit()
+    await db.refresh(user)
     return user
 
 # the cascade which was set up in User model will automatically delete all the user posts when a user is deleted
 @app.delete("/api/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.User).where(models.User.id == user_id))
+async def delete_user(user_id: int, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.scalars().first()
     if not user:
         raise HTTPException(
@@ -195,20 +208,20 @@ def delete_user(user_id: int, db: Annotated[Session, Depends(get_db)]):
             detail="User not found",
         )
 
-    db.delete(user)
-    db.commit()
+    await db.delete(user) # delete operation needs to interact with session in a way that requires await in async mode
+    await db.commit()
 
 
 # ??? Pydantic will automatically serialize the author-relationship as a user response (44:10 ?)
 @app.get("/api/posts", response_model=list[PostResponse]) #adding response_model parameter so that FstAPI validates that the response structure matches the PostResponse schema
-def get_posts(db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.Post))
+async def get_posts(db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
     posts = result.scalars().all()
     return posts
 
 @app.post("/api/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
-def create_post(post: PostCreate, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.User).where(models.User.id == post.user_id))
+async def create_post(post: PostCreate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.User).where(models.User.id == post.user_id))
     user = result.scalars().first()
     if not user:
         raise HTTPException(
@@ -223,14 +236,14 @@ def create_post(post: PostCreate, db: Annotated[Session, Depends(get_db)]):
     )
 
     db.add(new_post)
-    db.commit()
-    db.refresh(new_post)
+    await db.commit()
+    await db.refresh(new_post, attribute_names=["author"]) # When we create a new post and return it, we need the author to be loaded for the post response. So instead of doing a separate query with selectinload, we can tell refresh to also load specific relationships using the attribute name parameter.
 
     return new_post
 
 @app.get("/api/posts/{post_id}", response_model=PostResponse)
-def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
-    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+async def get_post(post_id: int, db: Annotated[AsyncSession, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).where(models.Post.id == post_id))
     post = result.scalars().first()
 
     if post:
@@ -239,8 +252,8 @@ def get_post(post_id: int, db: Annotated[Session, Depends(get_db)]): # using typ
 
 # this endpoint is for a PUT request which requires all the information to be provided for an update; Hence, we will be using PostCreate instead of PostUpdate because that already requires all the information.
 @app.put("/api/posts/{post_id}", response_model=PostResponse)
-def update_post_full(post_id: int, post_data: PostCreate, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+async def update_post_full(post_id: int, post_data: PostCreate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
     post = result.scalars().first()
 
     if not post:
@@ -249,7 +262,7 @@ def update_post_full(post_id: int, post_data: PostCreate, db: Annotated[Session,
     # checking whether the new user_id sent by the PUT request exists; we will only do this if the client sent a user_id which is different from what was already present in the original post
     # we only want to allow users who created a post to update or delete them
     if post_data.user_id != post.user_id:
-        result = db.execute(select(models.User).where(models.User.id == post_data.user_id))
+        result = await db.execute(select(models.User).where(models.User.id == post_data.user_id))
         user = result.scalars().first()
 
         if not user:
@@ -262,14 +275,14 @@ def update_post_full(post_id: int, post_data: PostCreate, db: Annotated[Session,
     post.content = post_data.content
     post.user_id = post_data.user_id
 
-    db.commit()
-    db.refresh(post)
+    await db.commit()
+    await db.refresh(post, attribute_names=["author"])
     return post
 
 
 @app.patch("/api/posts/{post_id}", response_model=PostResponse)
-def update_post_partial(post_id: int, post_data: PostUpdate, db: Annotated[Session, Depends(get_db)]):
-    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+async def update_post_partial(post_id: int, post_data: PostUpdate, db: Annotated[AsyncSession, Depends(get_db)]):
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
     post = result.scalars().first()
 
     if not post:
@@ -281,37 +294,35 @@ def update_post_partial(post_id: int, post_data: PostUpdate, db: Annotated[Sessi
     for field, value in update_data.items():
         setattr(post, field, value) # this sets the attribute 'field' in the post to the provided 'value'
 
-    db.commit()
-    db.refresh(post)
+    await db.commit()
+    await db.refresh(post, attribute_names=["author"])
     return post
 
 
 # For DELETE requests, we usually return a 204 No Content Response which means that the request succeeded but there is no response body. Hence we don't have a response_model here.
 @app.delete("/api/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT )
-def delete_post(post_id: int, db: Annotated[Session, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
-    result = db.execute(select(models.Post).where(models.Post.id == post_id))
+async def delete_post(post_id: int, db: Annotated[AsyncSession, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
+    result = await db.execute(select(models.Post).where(models.Post.id == post_id))
     post = result.scalars().first()
 
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
-    db.delete(post)
-    db.commit()
+    await db.delete(post)
+    await db.commit()
 # Later when we add authentication, we'll add ownership checks so that only the author of the post is allowed to delete it.
 
 @app.exception_handler(StarletteHTTPException)
-def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
-    message = (
-        exception.detail
-        if exception.detail
-        else "An error occurred. Please check your request and try again."
-    )
+async def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
 
     if request.url.path.startswith("/api"):
-        return JSONResponse(
-            status_code=exception.status_code,
-            content={"detail": message},
-        )
+        return await http_exception_handler(request, exception)
+
+    message = (
+    exception.detail
+    if exception.detail
+    else "An error occurred. Please check your request and try again.")
+
     return templates.TemplateResponse(
         request,
         "error.html",
@@ -324,12 +335,10 @@ def general_http_exception_handler(request: Request, exception: StarletteHTTPExc
     )
 
 @app.exception_handler(RequestValidationError)
-def validation_exception_handler(request: Request, exception: RequestValidationError):
+async def validation_exception_handler(request: Request, exception: RequestValidationError):
     if request.url.path.startswith("/api"):
-        return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            content={"detail": exception.errors()},
-        )
+        return await request_validation_exception_handler(request, exception)
+
     return templates.TemplateResponse(
         request,
         "error.html",
