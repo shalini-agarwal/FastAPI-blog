@@ -22,7 +22,7 @@ class User(Base):
 
     ''' one to many relationship; one user can have many posts
         We are referencing the Post before it's being defined below; this is called as foward-referencing'''
-    posts: Mapped[list[Post]] = relationship(back_populates="author")
+    posts: Mapped[list[Post]] = relationship(back_populates="author", cascade='all, delete-orphan') # tells SQLAlchemy to delete all their posts when a user is deleted
 
     @property
     def image_path(self) -> str:
