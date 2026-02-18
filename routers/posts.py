@@ -15,7 +15,7 @@ router = APIRouter()
 # ??? Pydantic will automatically serialize the author-relationship as a user response (44:10 ?)
 @router.get("", response_model=list[PostResponse]) #adding response_model parameter so that FstAPI validates that the response structure matches the PostResponse schema
 async def get_posts(db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)))
+    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).order_by(models.Post.date_posted.desc()))
     posts = result.scalars().all()
     return posts
 
