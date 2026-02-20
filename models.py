@@ -14,6 +14,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(200), nullable=False) # 200 characters should be enough for argon2 hashes
     image_file: Mapped[str | None] = mapped_column( # this stores just the file name without the path; this de-couples the db from the file structure; this helps in organizing the file structure later on without affecting the strcuture in the db
         String(200),
         nullable=True,

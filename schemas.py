@@ -8,19 +8,28 @@ class UserBase(BaseModel):
     email: EmailStr = Field(max_length=120)
 
 class UserCreate(UserBase):
-    pass
+    #password field - this is what we recieve from the user after they register
+    password:str = Field(min_length=8)
 
-class UserResponse(UserBase):
+class UserPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    username: str
     image_file: str | None
     image_path: str
+
+class UserPrivate(UserPublic):
+    email: EmailStr # when we return post data, we won't be exposing the the user (Author's) email which is a privacy improvement
 
 class UserUpdate(BaseModel):
     username: str | None = Field(default=None, min_length=1, max_length=50)
     email: EmailStr | None = Field(default=None, max_length=120)
     image_file: str | None = Field(default=None, min_length=1, max_length=200) # only storing the image filename and not the path as the image_path property in the model above will build the complete path for the image file
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 class PostBase(BaseModel):
     title: str = Field(min_length=1, max_length=100) # haven't given any default values here, that means these fields are required
@@ -43,4 +52,4 @@ class PostResponse(PostBase): # this defines what we return from our API end poi
     id: int
     user_id: int
     date_posted: datetime
-    author: UserResponse
+    author: UserPublic
