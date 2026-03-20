@@ -35,8 +35,15 @@ class PostBase(BaseModel):
     title: str = Field(min_length=1, max_length=100) # haven't given any default values here, that means these fields are required
     content: str = Field(min_length=1)
 
+'''
+We need to get the user ID from the token instead of the request body to only let logged in users (which are authenticated) to create post.
+Since the token was created by the server so we can trust it. And we also know who it was created by and when. 
+'''
 class PostCreate(PostBase): # this defines what we accept when creating a new post
-    user_id: int #TEMP because when we add authorization, we are going to get the user_id from the session
+    pass
+
+
+
 
 '''  Added None because we want to keep it optional as it is for PATCH update.
     Didn't include user_id here because we typically don't want to allow a change of ownership through a partial endpoint.
