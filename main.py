@@ -104,6 +104,24 @@ async def register_page(request: Request):
         {"title": "Register"},
     )
 
+# account page for the user where the user can see their account info
+'''We are not protecting this endpoint on the server like we are protecting the api endpoints because our token is stored in local storage which is only accessible by JS running in the browser.
+So when someone navigates to /account, the browser makes a regular GET request, it doesn't automatically include the token from local storage. 
+So the server has no way to know if you are logged in when it renders the page. 
+Instead we handle this with JS on the front end. So when the page loads, our JS checks if you're logged in and refirects you to the login page if you're not.
+This is just a user experience convenience. It prevents non-logged users from seeing a broken page. 
+But it is not real security. Someone could technically view this HTML page if they wanted to by disabling JS. But the actual security comes from the API endpoints.
+Any attempt to update or delete any account will fail with a 401 error because the API requires a valid token. 
+It is nice to reply on the front-end for user experience type of thing but it is always on our backend to handle the security.
+'''
+@app.get("/account", include_in_schema=False)
+async def account_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "account.html",
+        {"title": "Account"},
+    )
+
 
 @app.exception_handler(StarletteHTTPException)
 async def general_http_exception_handler(request: Request, exception: StarletteHTTPException):
