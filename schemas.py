@@ -25,7 +25,6 @@ class UserPrivate(UserPublic):
 class UserUpdate(BaseModel):
     username: str | None = Field(default=None, min_length=1, max_length=50)
     email: EmailStr | None = Field(default=None, max_length=120)
-    image_file: str | None = Field(default=None, min_length=1, max_length=200) # only storing the image filename and not the path as the image_path property in the model above will build the complete path for the image file
 
 class Token(BaseModel):
     access_token: str

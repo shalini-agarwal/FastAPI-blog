@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     algorithm: str = "HS256" # standard for JWT
     access_token_expire_minutes: int = 30
 
+    max_upload_size_bytes: int = 5 * 1024 * 1024 # a default of 5 mega bytes; helps prevent the server from huge file uploads
+
 settings = Settings() # loaded from the .env file
 
 
