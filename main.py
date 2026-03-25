@@ -6,7 +6,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from typing import Annotated
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,8 @@ from contextlib import asynccontextmanager
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 
 from routers import posts, users
+
+from config import settings
 
 # create_all is synchronous. We can't call synchronous methods with async engine. We need to remove this line and instead create our tables in a lifespan function.
 # lifespan is a modern way in FastAPI to handle start-up and shutdown events. It replaces the older deprecated on-startup and on-shutdown decorators.
@@ -44,18 +46,40 @@ templates = Jinja2Templates(directory="templates")
 
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
-
 # tag parameter organizes the /docs page. It creates collapsables sections. All the users endpoints will appear under a users header and similar for posts.
 
-@app.get("/", include_in_schema=False, name='home')
-@app.get("/posts", include_in_schema=False, name='posts')
+@app.get("/", include_in_schema=False, name="home")
+@app.get("/posts", include_in_schema=False, name="posts")
 async def home(request: Request, db: Annotated[AsyncSession, Depends(get_db)]):
-    result = await db.execute(select(models.Post).options(selectinload(models.Post.author)).order_by(models.Post.date_posted.desc())) # we are now getting the posts from the db instead of the in-memory list
+    count_result = await db.execute(select(func.count()).select_from(models.Post))
+    total = count_result.scalar() or 0
+
+    result = await db.execute(
+        select(models.Post)
+        .options(selectinload(models.Post.author))
+        .order_by(models.Post.date_posted.desc())
+        .limit(settings.posts_per_page),
+    ) # there is not offset (i.e. skip) here as compared to the api as it will always be the first page
+    
     posts = result.scalars().all()
+
+    has_more = len(posts) < total
+
+    '''
+    This is going to be a hybrid approach here as the first batch is going to be server side rendered so that the page loads fast and search engine can see the content.
+    The subsequent batches are going to be fetched by JavaScript. So it is going to be fast initial load and then some dynamic loading after that.
+    '''
     return templates.TemplateResponse(
-        request, 
-        "home.html", 
-        {"posts": posts, "title": "Home"})
+        request,
+        "home.html",
+        {
+            "posts": posts,
+            "title": "Home",
+            "limit": settings.posts_per_page,
+            "has_more": has_more,
+        }, 
+    )
+# same pagination logic as in the api but this time we're only getting the first batch for server side rendering 
 
 @app.get("/posts/{post_id}", include_in_schema=False)
 async def post_page(request: Request, post_id: int, db: Annotated[AsyncSession, Depends(get_db)]): # using type hinting helps FastAPI to automatically validate the input
