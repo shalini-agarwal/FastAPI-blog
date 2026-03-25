@@ -59,3 +59,12 @@ class PostResponse(PostBase): # this defines what we return from our API end poi
     user_id: int
     date_posted: datetime
     author: UserPublic
+
+class PaginatedPostsResponse(BaseModel):
+    posts: list[PostResponse]
+    total: int #total count of posts in the db
+    skip: int #the current offset
+    limit: int #how many posts were requested
+    has_more: bool #if there are more posts after the current batch
+
+    # we need has_more even though we have total because it makes the FE simpler. It doesn't have to do any calculations. The api just tells them if there are more posts and it makes it easier for the client. 
