@@ -14,7 +14,9 @@ class Settings(BaseSettings):
 
     max_upload_size_bytes: int = 5 * 1024 * 1024 # a default of 5 mega bytes; helps prevent the server from huge file uploads
 
-settings = Settings() # loaded from the .env file
+    posts_per_page: int = 10 # This is to centralize the posts per page setting. This is because if we want to change the page size later, we can change it here.
+
+settings = Settings() # type: ignore[call-arg] # loaded from the .env file
 
 
 # the secret key in system environment variables takes precedence over that in the .env file.
