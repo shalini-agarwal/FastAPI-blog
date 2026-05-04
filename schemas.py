@@ -68,3 +68,16 @@ class PaginatedPostsResponse(BaseModel):
     has_more: bool #if there are more posts after the current batch
 
     # we need has_more even though we have total because it makes the FE simpler. It doesn't have to do any calculations. The api just tells them if there are more posts and it makes it easier for the client. 
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr = Field(max_length=120)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
