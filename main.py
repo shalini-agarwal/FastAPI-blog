@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import models
-from database import Base, engine, get_db
+from database import engine, get_db
 
 from contextlib import asynccontextmanager
 from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
@@ -20,17 +20,22 @@ from routers import posts, users
 
 from config import settings
 
-# create_all is synchronous. We can't call synchronous methods with async engine. We need to remove this line and instead create our tables in a lifespan function.
-# lifespan is a modern way in FastAPI to handle start-up and shutdown events. It replaces the older deprecated on-startup and on-shutdown decorators.
-# Base.metadata.create_all(bind=engine) 
+# Schemas are going to be managed by migrations and not app start-up
 
+'''
+Earlier we were using create_all and the way it worked was each time it looks at the models and if it doesn't exist, then it creates a new one.
+If the table already exists, then it does nothing even if the table is different from the model. Hence, this is not a migration system. It is just a creation system.
+Lets say we have tables that already exists and now we want to add a likes field to our Post model to track how many likes a specific post has on any of the posts.
+If we added that field and ran our app, create_all would see that the Post table already exists and it will do nothing. And the new likes column wouldn't be added to our db.
+The only way to pick up schema changes with create_all is to delete the existing db and start afresh. And this method is not practical.
+What we need instead is migrations. Migrations track schema changes over time and apply incremental changes safely. They are basically version control for db schema.
+Think of each migration file like a git commit for your db. It records excatly wht has changed and we can move forward or backward throughout the history.
 
-# Asynchronous way of creating the db tables. If they do exist then, because it is idempotent, it can be run multiple times and it won't have any side effects.?
+We will be handling migrations through Alembic.
+'''
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    # Startup
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown
     await engine.dispose()

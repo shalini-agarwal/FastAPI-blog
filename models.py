@@ -52,6 +52,7 @@ class Post(Base):
         DateTime(timezone=True), # SQLite stores datetime as text but this will ensure PostgreSQL will use timestamp TZ when we migrate later 
         default=lambda: datetime.now(UTC), # gets called by default when a post gets created to set the post creation time to the current time
     )
+    likes: Mapped[int] = mapped_column(Integer, default=0, server_default="0") # the server_default is important if we are adding non-NULL column to a table that already has data
 
     author: Mapped[User] = relationship(back_populates="posts") # many to one relationship
 

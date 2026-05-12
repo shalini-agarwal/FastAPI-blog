@@ -1,12 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from config import settings
 
-SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./blog.db" # this tells SQLAlchemy which async driver to use for SQLite db
-
-engine = create_async_engine( # this is the connection to the database
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}, # SQLite allows only one thread but FastAPI handles multiple requests across threads hence we disable this configuration for SQLite
-)
+# this is the connection to the database
+engine = create_async_engine(settings.database_url)
 
 '''A factory that creates database sessions; session is a transaction with the db; each request gets its own session.
     autocommit and autoflush is turned false because we want to control when the change happens.'''

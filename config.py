@@ -8,6 +8,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
     )
 
+    database_url: str # we are not setting a default which means we either need to set up in our system or in our .env file
+
     secret_key: SecretStr # A special type that doesn't leak the value in logs or when we print it out; if it accidentantly gets printed, then we see a bunch of asterics instead of the actual value 
     algorithm: str = "HS256" # standard for JWT
     access_token_expire_minutes: int = 30
