@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     algorithm: str = "HS256" # standard for JWT
     access_token_expire_minutes: int = 30
 
+    s3_bucket_name: str
+    s3_region: str = "us-east-2"
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    s3_endpoint_url: str | None = None
+
     max_upload_size_bytes: int = 5 * 1024 * 1024 # a default of 5 mega bytes; helps prevent the server from huge file uploads
 
     posts_per_page: int = 10 # This is to centralize the posts per page setting. This is because if we want to change the page size later, we can change it here.
